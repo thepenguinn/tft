@@ -1,27 +1,40 @@
 #include<stdio.h>
 #include<stdlib.h>
+#include<sys/stat.h>
 
-enum ExitStatus {
-	OOMEM = 1,
-	NULLARG,
+/*
+├── me
+│       ├── not
+│       └── y
+*/
+
+enum DelmType {
+	DELM_NODE,
+	DELM_CHAR,
 };
 
-enum Bool {
-	FALSE = 0,
-	TRUE,
+enum ErrorType {
+	ERROR_NONE   = 0b0000,
+	ERROR_KEY    = 0b0001,
+	ERROR_VALUE  = 0b0010,
+	ERROR_IVALUE = 0b0100,
 };
 
 enum NodeType {
-	NODE,       /* the node points to an array of Nodes */
-	STRING,     /* points to a string, node does not any children nodes */
+	NODE_NODE,       /* the node points to an array of Nodes */
+	NODE_STRING,     /* points to a string, node does not any children nodes */
 };
 
 enum TokenType {
-	ERROR = 0,
-	EMPTY,
-	KEY,        /* a string key in the table */
-	VALUE,      /* a value that has a string key */
-	IVALUE,     /* an indexed value that has a number index key */
+	TOKEN_NULL = 0,
+	TOKEN_KEY,        /* a string key in the table */
+	TOKEN_VALUE,      /* a value that has a string key */
+	TOKEN_IVALUE,     /* an indexed value that has a number index key */
+};
+
+enum KeyType {
+	KEY_NUM,
+	KEY_STR,
 };
 
 struct Token;
@@ -29,7 +42,7 @@ struct Node;
 struct Delm;
 
 struct Delm {
-	int isnode;
+	enum DelmType dtype;
 	union {
 		char *delm;
 		struct Node *node;
@@ -37,30 +50,32 @@ struct Delm {
 	struct Delm *next;
 };
 
-/* */
 struct Token {
-	int type;
+	enum TokenType ttype;
+	enum ErrorType etype;
 	char *start;
 	char *end;
 };
 
 struct Node {
-	int type;
-	int ncnodes;
-	char *index;
+	enum NodeType ntype;
+	enum KeyType ktype;
+	enum ErrorType etype;
+	int childnr;
 	union {
-		char *string;
+		int keynum;
+		char *keystr;
+	};
+	union {
+		char *valstr;
 		struct Node *child;
 	};
 	struct Node *sibling;
 };
 
-
-// struct EndNode **get_end_nodes(
-// 	char **delms, int ndelms, char leftchar, char rightchar, int *nnodes);
 char *read_file(char *file, int *nread);
 int get_delms(
-	struct Delm **delimters, char *str, char *dtosearch, int *nmatch);
+	struct Delm **delimters, char *str, int *nmatch);
 
 struct Node *create_node() {
 
@@ -71,6 +86,9 @@ struct Node *create_node() {
 	if (!node) {
 		fprintf(stderr, "Out of memmory, bailing out\n");
 	}
+
+	fprintf(stderr, "%p\n", node);
+	fprintf(stderr, "%d\n", node->ntype);
 
 	return node;
 }
@@ -107,16 +125,17 @@ void dispose_delm(struct Delm *dlem) {
 }
 
 int get_delms(
-	struct Delm **delimters, char *str, char *dtosearch, int *nmatch) {
+	struct Delm **delimters, char *str, int *nmatch) {
 
 	struct Delm *delms;
 	struct Delm *curdelm = NULL;
 	struct Delm *predelm = NULL;
+	char dtosearch[] = "={},\0";
 	char *schar = dtosearch;
 	int nm = 0;
 
-	if (!str || !dtosearch || !delimters || !nmatch) {
-		return NULLARG;
+	if (!delimters || !str || !nmatch) {
+		return 1;
 	}
 
 	while (*str) {
@@ -124,19 +143,20 @@ int get_delms(
 			if (*str == *schar) {
 
 				curdelm = create_delm();
-
-				curdelm->delm = str;
-				curdelm->isnode = 0;
-				nm++;
-
 				if (predelm) {
 					predelm->next = curdelm;
 				} else {
 					delms = curdelm;
 				}
 
-				predelm = curdelm;
+				curdelm->delm = str;
+				curdelm->dtype= DELM_CHAR;
 				curdelm->next = NULL;
+				nm++;
+
+				predelm = curdelm;
+
+				break;
 			}
 			schar++;
 		}
@@ -157,17 +177,23 @@ char *read_file(char *file, int *nread) {
 	char *str;
 	char ch;
 	FILE *fp;
+	struct stat st;
 
 	if (!file) {
 		return NULL;
 	}
 
-	fp = fopen(file, "r");
-
-	if (!fp) {
-		fprintf(stderr, "Couldn't open file %s, probably it doesn't exist\n", file);
+	if (stat(file, &st)) {
+		fprintf(stderr, "Couldn't open file %s, probably it doesn't exist.\n", file);
 		exit(EXIT_FAILURE);
 	}
+
+	if (S_ISDIR(st.st_mode)) {
+		fprintf(stderr, "%s is a directory.\n", file);
+		exit(EXIT_FAILURE);
+	}
+
+	fp = fopen(file, "r");
 
 	str = malloc(sizeof(char) * BUFSIZ);
 
@@ -205,174 +231,504 @@ char *read_file(char *file, int *nread) {
 
 }
 
-void checking() {
+// void checking() {
+//
+// 	struct Node tbl;
+// 	char hai[] = "lol\n\0";
+//
+//
+// 	tbl.string = hai;
+//
+// 	printf("%s", tbl.string);
+//
+// }
 
-	struct Node tbl;
-	char hai[] = "lol\n\0";
-
-
-	tbl.string = hai;
-
-	printf("%s", tbl.string);
-
-}
-
-void get_token(
-	struct Token *token, char *leftdelm, char *rightdelm) {
+static void gen_token(
+	struct Token *tkn, char *leftdelm, char *rightdelm) {
 
 	char *tstart = leftdelm + 1;
 	char *tend = rightdelm - 1;
 
 	while (tstart != rightdelm) {
-		switch (*tstart) {
-			case '\n':
-			case ' ':
-			case '\t':
-			default: break;
+		if  (*tstart != '\n' && *tstart != ' ' && *tstart != '\t') {
+			break;
 		}
 		tstart++;
 	}
 
 	while (tend != leftdelm) {
-		switch (*tend) {
-			case '\n':
-			case ' ':
-			case '\t':
-			default: break;
+		if  (*tend != '\n' && *tend != ' ' && *tend != '\t') {
+			break;
 		}
 		tend--;
 	}
 
-	/* catching empty tokens that are supposed to have someting */
-	if ((*leftdelm != '{' && *rightdelm == '}')
-		&& tstart == rightdelm || tend == leftdelm) {
+	if (*leftdelm == '=') {
 
-		fprintf(stderr, "Missing token values\n");
-		exit(EXIT_FAILURE);
+		if (*rightdelm == '=') {
+			fprintf(stderr, "Expected the value token to end with a ',' or a '}'\n");
+			exit(EXIT_FAILURE);
+		}
 
-	}
-
-	if (*rightdelm == '=') {
-		token->type = KEY;
-	} else if (*leftdelm == '=') {
-		token->type = VALUE;
-	} else if (tstart == rightdelm || tend == leftdelm) {
-		token->type = EMPTY;
-	} else {
-		token->type = IVALUE;
-	}
-
-	token->start = tstart;
-	token->end = tend;
-
-}
-
-struct Node *make_node(struct Delm *lend, struct Delm *rend) {
-
-	struct Node *node;
-	struct Delm *curdelm = lend;
-	struct Node *prev_child = NULL;
-	char *curchar;
-	int childnr = 0;
-
-	node = create_node();
-
-	while (curdelm != rend) {
-
-		if (curdelm->isnode) {
-			if (prev_child)
-				prev_child->sibling = curdelm->node;
-			else
-				node->child = curdelm->node;
+		tkn->ttype = TOKEN_VALUE;
+		if (tstart == rightdelm) {
+			tstart = NULL;
+			tkn->etype = ERROR_VALUE;
 		} else {
+			tkn->etype = ERROR_NONE;
+		}
 
+	} else if (*rightdelm == '=') {
+
+		tkn->ttype = TOKEN_KEY;
+		if (tstart == rightdelm) {
+			tstart = NULL;
+			tkn->etype = ERROR_KEY;
+		} else {
+			tkn->etype = ERROR_NONE;
+		}
+
+	} else if (*rightdelm == '}') {
+
+		if (*leftdelm == '{') {
+			if (tstart == rightdelm) {
+				tkn->ttype = TOKEN_NULL;
+			} else {
+				tkn->ttype = TOKEN_IVALUE;
+			}
+		} else if (*leftdelm == ',') {
+			if (tstart == rightdelm) {
+				tkn->ttype = TOKEN_NULL;
+			} else {
+				tkn->ttype = TOKEN_IVALUE;
+			}
+		}
+
+		tkn->etype = ERROR_NONE;
+
+	} else {
+
+		tkn->ttype = TOKEN_IVALUE;
+		if (tstart == rightdelm) {
+			tstart = NULL;
+			tkn->etype = ERROR_IVALUE;
+		} else {
+			tkn->etype = ERROR_NONE;
 		}
 
 
+	}
+
+	tkn->start = tstart;
+	tkn->end = tend;
+
+}
+
+static int calc_strlen(char *start, char *end) {
+
+	// TODO: Make this a macro
+	int len;
+
+	len = (int)(end - start);
+
+	if (len < 0)
+		len = ~len + 1;
+
+	return len + 1;
+
+}
+
+static char *tkn_tostr(struct Token *tkn) {
+
+	char *dst;
+	char *tmp;
+	char *src = tkn->start;
+	int len;
+
+	if (!src) {
+		return NULL;
+	}
+
+	len = calc_strlen(tkn->start, tkn->end);
+
+	tmp = dst = malloc(sizeof(char) * (len + 1));
+
+	while (len) {
+		*tmp = *src;
+		tmp++;
+		src++;
+		len--;
+	}
+
+	*tmp = '\0';
+
+	return dst;
+
+}
+
+struct Node *make_node(struct Delm *leftdelm, struct Delm *rightdelm) {
+
+	struct Delm *curdelm = leftdelm;
+	struct Delm *nexdelm;
+	struct Node *parnode;
+	struct Node *prenode = NULL;
+	struct Node *curnode = NULL;;
+	struct Token tkn;
+	int childnr = 0;
+	int idx = 0;
+
+	tkn.ttype = TOKEN_NULL;
+
+	parnode = create_node();
+	parnode->sibling = NULL;
+	parnode->ntype = NODE_NODE;
+	parnode->etype = ERROR_NONE;
+	parnode->child = NULL;
+
+	while (curdelm != rightdelm) {
+
+		nexdelm = curdelm->next;
+
+		if (nexdelm->dtype == DELM_NODE) {
+
+			prenode = curnode;
+			curnode = nexdelm->node;
+			childnr++;
+
+			switch (tkn.ttype) {
+				case TOKEN_KEY:
+					curnode->ktype = KEY_STR;
+					curnode->keystr = tkn_tostr(&tkn);
+					curnode->etype = tkn.etype;
+					break;
+				default:
+					curnode->ktype = KEY_NUM;
+					curnode->keynum = ++idx;
+			}
+
+			if (prenode) {
+				prenode->sibling = curnode;
+			} else {
+				parnode->child = curnode;
+			}
+
+			if (nexdelm->next->dtype == DELM_CHAR) {
+				switch (*(nexdelm->next->delm)) {
+					case ',':
+						if (curdelm != leftdelm)
+							dispose_delm(curdelm);
+						curdelm = nexdelm;
+
+						break;
+					case '}':
+						break;
+					default:
+						fprintf(stderr, "Missing a comma\n");
+						exit(EXIT_FAILURE);
+				}
+			} else {
+				fprintf(stderr, "Missing a comma\n");
+				exit(EXIT_FAILURE);
+			}
+
+			tkn.ttype = TOKEN_NULL;
+
+		} else if (nexdelm->dtype == DELM_CHAR) {
+
+			if (curdelm->dtype == DELM_CHAR) {
+
+				if (tkn.ttype == TOKEN_KEY) {
+
+					prenode = curnode;
+					curnode = create_node();
+					curnode->etype = tkn.etype;
+					childnr++;
+
+					curnode->ktype = KEY_STR;
+					curnode->keystr = tkn_tostr(&tkn);
+				}
+
+				gen_token(&tkn, curdelm->delm, nexdelm->delm);
+
+				switch (tkn.ttype) {
+					case TOKEN_IVALUE:
+						prenode = curnode;
+						curnode = create_node();
+						curnode->etype = tkn.etype;
+						childnr++;
+
+						curnode->ktype = KEY_NUM;
+						curnode->keynum = ++idx;
+
+					case TOKEN_VALUE:
+						curnode->ntype = NODE_STRING;
+						curnode->valstr = tkn_tostr(&tkn);
+						curnode->etype = curnode->etype | tkn.etype;
+
+						if (prenode) {
+							prenode->sibling = curnode;
+						} else {
+							parnode->child = curnode;
+						}
+
+						break;
+					default:
+						break;
+				}
+
+
+			} else {
+				fprintf(stderr, "Thats supposed to be a delimiter.\n");
+				exit(EXIT_FAILURE);
+			}
+
+		}
+
+		if (curdelm != leftdelm)
+			dispose_delm(curdelm);
 		curdelm = curdelm->next;
 
 	}
 
+	if (curnode)
+		curnode->sibling = NULL;
 
+	leftdelm->dtype = DELM_NODE;
+	leftdelm->node = parnode;
+	leftdelm->next = rightdelm->next;
+	dispose_delm(rightdelm);
 
 }
 
-int gen_tree(struct Node **node, struct Delm *delms, int ndelms) {
+int capture_nodes(struct Delm *delms, int ndelms) {
 
 	int i;
 	struct Delm *leftdelm = NULL;
 	struct Delm *rightdelm = NULL;
-	struct Node *parnode;
-	struct Node *curnode;
-	struct Node *eldnode;
 	struct Delm *curdelm;
+	int capnodes = 0;
 
-	if (!node || !delms || ndelms < 0) {
-		return NULLARG;
+	if (!delms || ndelms < 0) {
+		return 1;
 	}
 
-	parnode = create_node();
+	while (1) {
+		for (curdelm = delms; curdelm; curdelm = curdelm->next) {
 
-	for (curdelm = delms; curdelm; curdelm = curdelm->next) {
+			if (curdelm->dtype == DELM_CHAR) {
+				if (*(curdelm->delm) == '{') {
+					leftdelm = curdelm;
+				} else if (*(curdelm->delm) == '}' && leftdelm) {
+					rightdelm = curdelm;
+				}
 
-		if (curdelm->isnode == 0) {
-			if (*(curdelm->delm) == '{') {
-				leftdelm = curdelm;
-			} else if (*(curdelm->delm) == '}' && leftdelm) {
-				rightdelm = curdelm;
 			}
+
+			if (leftdelm && rightdelm) {
+				make_node(leftdelm, rightdelm);
+				leftdelm = rightdelm = NULL;
+				capnodes++;
+			}
+
 		}
 
-		if (leftdelm && rightdelm) {
-			curnode = make_node(leftdelm, rightdelm);
-		} else if (leftdelm) {
-			fprintf(stderr, "Missing a }\n");
-		} else if (rightdelm) {
-			fprintf(stderr, "Missing a {\n");
-		} else {
+		if (!capnodes) {
+			if (leftdelm) {
+				fprintf(stderr, "Probabily missing a brace\n");
+				exit(EXIT_FAILURE);
+			}
+			return 0;
 		}
+		capnodes = 0;
+		curdelm = delms;
 	}
 
 }
 
-int parse_string(char *str, int len) {
+static void gen_rootkey(struct Token *tkn, char *left, char *right) {
+
+	char local[] = "local\0";
+	char *lch = local;
+	char *tmp;
+	int i = 0;
+
+	while (*left) {
+		if  (*left != '\n' && *left != ' ' && *left != '\t') {
+			break;
+		}
+		left++;
+	}
+
+	tmp = left;
+
+	while (*lch && *tmp && *tmp == *lch) {
+		i++;
+		tmp++;
+		lch++;
+	}
+
+	if (i == 5) {
+		left = tmp;
+		while (*left && left != right) {
+			if  (*left != '\n' && *left != ' ' && *left != '\t') {
+				break;
+			}
+			left++;
+		}
+
+	}
+
+	while (*right && right != left) {
+		if  (*right != '\n' && *right != ' ' && *right != '\t') {
+			break;
+		}
+		right--;
+	}
+
+	tkn->ttype = TOKEN_KEY;
+
+	if (left == right) {
+
+		tkn->etype = ERROR_KEY;
+		tkn->start = NULL;
+
+	} else {
+
+		tkn->etype = ERROR_NONE;
+		tkn->start = left;
+		tkn->end = right;
+
+	}
+
+}
+
+struct Node *get_rootnode(char *str, struct Delm *delms) {
+
+	struct Node *rnode = NULL;
+	struct Token tkn;
+
+	switch (delms->dtype) {
+		case DELM_CHAR:
+			if (*(delms->delm) == '=') {
+
+				if (delms->next && delms->next->dtype == DELM_NODE) {
+					rnode = delms->next->node;
+
+					gen_rootkey(&tkn, str, delms->delm);
+
+					rnode->etype = tkn.etype;
+					rnode->ktype = KEY_STR;
+					rnode->keystr = tkn_tostr(&tkn);
+
+				} else {
+					fprintf(stderr, "Next delimiter is not a node.\n");
+					exit(EXIT_FAILURE);
+				}
+			} else {
+				fprintf(stderr, "Syntax error\n");
+				exit(EXIT_FAILURE);
+			}
+
+			break;
+		case DELM_NODE:
+			rnode = delms->node;
+			rnode->sibling = NULL;
+			rnode->etype = ERROR_NONE;
+			rnode->ktype = KEY_NUM;
+			rnode->keynum = 1;
+			break;
+		default:
+			fprintf(stderr, "Syntax error\n");
+			exit(EXIT_FAILURE);
+
+	}
+
+	return rnode;
+}
+
+struct Node *parse_string(char *str, int len) {
 
 	int no_delms;
 	int no_end_nodes;
-	int i;
 	struct Delm *delms;
-	struct Node *curnode;
+	struct Delm *tmpdelm;
+	struct Node *rnode;
+	// char string[] = " { { 'hai4', { 'lol' }, }, }\0";
 
-	char dtosearch[] = "={},\0";
+	get_delms(&delms, str, &no_delms);
 
-	get_delms(&delms, str, dtosearch, &no_delms);
-
-
-	// end_nodes = get_end_nodes(delms, no_delms, &no_end_nodes);
-
-	while (delms) {
-		printf("%c\n", *(delms->delm));
-		delms = delms->next;
+	if (!no_delms) {
+		fprintf(stderr, "Couldn't find any delimiters\n");
+		exit(EXIT_FAILURE);
 	}
 
-	printf("%s\n", str);
-	printf("%d\n", len);
-	printf("%d\n", no_delms);
+	capture_nodes(delms, no_delms);
+
+	rnode = get_rootnode(str, delms);
+
+	while (delms) {
+		tmpdelm = delms->next;
+		dispose_delm(delms);
+		delms = tmpdelm;
+	}
+
+	return rnode;
+
+}
+
+void draw_tree(int depth, struct Node *node) {
+
+	int i;
+	struct Node *child;
+
+	child = node;
+
+	while (child) {
+
+		fprintf(stderr, "%p\n", child);
+
+		if (child->ntype == NODE_NODE) {
+			for (i = 0; i < depth; i++) {
+				printf("    ");
+			}
+			printf("NODE_NODE\n");
+			draw_tree(depth + 1, child->child);
+		} else if (child->ntype == NODE_STRING) {
+			for (i = 0; i < depth; i++) {
+				printf("    ");
+			}
+			printf("%s\n", child->valstr);
+		} else {
+			printf("That not supposed to happen\n");
+			fprintf(stderr, "--> %d\n", child->ntype);
+			fprintf(stderr, "--> %c\n", *child);
+		}
+
+		child = child->sibling;
+	}
 
 }
 
 
 int main(int argc, char **argv) {
 
-	int i;
 	int nread;
 	char *str;
+	struct Node *rnode;
+
+	if (argc < 2) {
+		fprintf(stderr, "File name not specified.\n");
+		exit(EXIT_FAILURE);
+	}
 
 	str = read_file(argv[1], &nread);
 
-	parse_string(str, nread);
+	rnode = parse_string(str, nread);
 
+	free(str);
 
-	checking();
+	draw_tree(0, rnode);
+
+	// checking();
 
 }
