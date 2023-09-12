@@ -2,12 +2,6 @@
 #include<stdlib.h>
 #include<sys/stat.h>
 
-/*
-├── me
-│       ├── not
-│       └── y
-*/
-
 enum DelmType {
 	DELM_NODE,
 	DELM_CHAR,
@@ -21,7 +15,7 @@ enum ErrorType {
 };
 
 enum NodeType {
-	NODE_NODE,       /* the node points to an array of Nodes */
+	NODE_CHILD,      /* the node points to an array of Nodes */
 	NODE_STRING,     /* points to a string, node does not any children nodes */
 };
 
@@ -73,9 +67,30 @@ struct Node {
 	struct Node *sibling;
 };
 
+static char char_minus[] = "─\0";
+static char char_pipe[]  = "│\0";
+static char char_tee[]   = "├\0";
+static char char_elbow[] = "└\0";
+
+struct Node *create_node();
+struct Delm *create_delm();
+void dispose_node(struct Node *node);
+void dispose_delm(struct Delm *dlem);
+
+static int calc_strlen(char *start, char *end);
+static char *tkn_tostr(struct Token *tkn);
+static void gen_rootkey(struct Token *tkn, char *left, char *right);
+static void gen_token( struct Token *tkn, char *leftdelm, char *rightdelm);
+
+struct Node *make_node(struct Delm *leftdelm, struct Delm *rightdelm);
+int capture_nodes(struct Delm *delms, int ndelms);
+struct Node *get_rootnode(char *str, struct Delm *delms);
+int get_delms(struct Delm **delimters, char *str, int *nmatch);
+struct Node *parse_string(char *str, int len);
+
 char *read_file(char *file, int *nread);
-int get_delms(
-	struct Delm **delimters, char *str, int *nmatch);
+
+void draw_tree(int depth, struct Node *node);
 
 struct Node *create_node() {
 
@@ -86,9 +101,6 @@ struct Node *create_node() {
 	if (!node) {
 		fprintf(stderr, "Out of memmory, bailing out\n");
 	}
-
-	fprintf(stderr, "%p\n", node);
-	fprintf(stderr, "%d\n", node->ntype);
 
 	return node;
 }
@@ -124,127 +136,106 @@ void dispose_delm(struct Delm *dlem) {
 	free(dlem);
 }
 
-int get_delms(
-	struct Delm **delimters, char *str, int *nmatch) {
+static int calc_strlen(char *start, char *end) {
 
-	struct Delm *delms;
-	struct Delm *curdelm = NULL;
-	struct Delm *predelm = NULL;
-	char dtosearch[] = "={},\0";
-	char *schar = dtosearch;
-	int nm = 0;
+	// TODO: Make this a macro
+	int len;
 
-	if (!delimters || !str || !nmatch) {
-		return 1;
+	len = (int)(end - start);
+
+	if (len < 0)
+		len = ~len + 1;
+
+	return len + 1;
+
+}
+
+static char *tkn_tostr(struct Token *tkn) {
+
+	char *dst;
+	char *tmp;
+	char *src = tkn->start;
+	int len;
+
+	if (!src) {
+		return NULL;
 	}
 
-	while (*str) {
-		while (*schar) {
-			if (*str == *schar) {
+	len = calc_strlen(tkn->start, tkn->end);
 
-				curdelm = create_delm();
-				if (predelm) {
-					predelm->next = curdelm;
-				} else {
-					delms = curdelm;
-				}
+	tmp = dst = malloc(sizeof(char) * (len + 1));
 
-				curdelm->delm = str;
-				curdelm->dtype= DELM_CHAR;
-				curdelm->next = NULL;
-				nm++;
+	while (len) {
+		*tmp = *src;
+		tmp++;
+		src++;
+		len--;
+	}
 
-				predelm = curdelm;
+	*tmp = '\0';
 
+	return dst;
+
+}
+
+static void gen_rootkey(struct Token *tkn, char *left, char *right) {
+
+	char local[] = "local\0";
+	char *lch = local;
+	char *tmp;
+	int i = 0;
+
+	while (*left) {
+		if  (*left != '\n' && *left != ' ' && *left != '\t') {
+			break;
+		}
+		left++;
+	}
+
+	tmp = left;
+
+	while (*lch && *tmp && *tmp == *lch) {
+		i++;
+		tmp++;
+		lch++;
+	}
+
+	if (i == 5) {
+		left = tmp;
+		while (*left && left != right) {
+			if  (*left != '\n' && *left != ' ' && *left != '\t') {
 				break;
 			}
-			schar++;
-		}
-		str++;
-		schar = dtosearch;
-	}
-
-	*delimters = delms;
-	*nmatch = nm;
-
-	return 0;
-
-}
-
-char *read_file(char *file, int *nread) {
-
-	int read_chnr = 0;
-	char *str;
-	char ch;
-	FILE *fp;
-	struct stat st;
-
-	if (!file) {
-		return NULL;
-	}
-
-	if (stat(file, &st)) {
-		fprintf(stderr, "Couldn't open file %s, probably it doesn't exist.\n", file);
-		exit(EXIT_FAILURE);
-	}
-
-	if (S_ISDIR(st.st_mode)) {
-		fprintf(stderr, "%s is a directory.\n", file);
-		exit(EXIT_FAILURE);
-	}
-
-	fp = fopen(file, "r");
-
-	str = malloc(sizeof(char) * BUFSIZ);
-
-	if (!str) {
-		fprintf(stderr, "Out of memory\n");
-		return NULL;
-	}
-
-	while((ch = fgetc(fp)) != (char)EOF) {
-
-		*(str + read_chnr) = ch;
-		read_chnr++;
-
-		if (read_chnr % BUFSIZ == 0) {
-			str = realloc(str, sizeof(char) * (read_chnr + BUFSIZ));
-
-			if (!str) {
-				fprintf(stderr, "Out of memory\n");
-				return NULL;
-			}
-
+			left++;
 		}
 
 	}
 
-	*(str + read_chnr) = '\0';
-
-	fclose(fp);
-
-	if (nread) {
-		*nread = read_chnr;
+	while (*right && right != left) {
+		if  (*right != '\n' && *right != ' ' && *right != '\t') {
+			break;
+		}
+		right--;
 	}
 
-	return str;
+	tkn->ttype = TOKEN_KEY;
+
+	if (left == right) {
+
+		tkn->etype = ERROR_KEY;
+		tkn->start = NULL;
+
+	} else {
+
+		tkn->etype = ERROR_NONE;
+		tkn->start = left;
+		tkn->end = right;
+
+	}
 
 }
 
-// void checking() {
-//
-// 	struct Node tbl;
-// 	char hai[] = "lol\n\0";
-//
-//
-// 	tbl.string = hai;
-//
-// 	printf("%s", tbl.string);
-//
-// }
-
-static void gen_token(
-	struct Token *tkn, char *leftdelm, char *rightdelm) {
+static void gen_token( struct Token *tkn, char *leftdelm, char *rightdelm) {
 
 	char *tstart = leftdelm + 1;
 	char *tend = rightdelm - 1;
@@ -324,48 +315,6 @@ static void gen_token(
 
 }
 
-static int calc_strlen(char *start, char *end) {
-
-	// TODO: Make this a macro
-	int len;
-
-	len = (int)(end - start);
-
-	if (len < 0)
-		len = ~len + 1;
-
-	return len + 1;
-
-}
-
-static char *tkn_tostr(struct Token *tkn) {
-
-	char *dst;
-	char *tmp;
-	char *src = tkn->start;
-	int len;
-
-	if (!src) {
-		return NULL;
-	}
-
-	len = calc_strlen(tkn->start, tkn->end);
-
-	tmp = dst = malloc(sizeof(char) * (len + 1));
-
-	while (len) {
-		*tmp = *src;
-		tmp++;
-		src++;
-		len--;
-	}
-
-	*tmp = '\0';
-
-	return dst;
-
-}
-
 struct Node *make_node(struct Delm *leftdelm, struct Delm *rightdelm) {
 
 	struct Delm *curdelm = leftdelm;
@@ -381,7 +330,7 @@ struct Node *make_node(struct Delm *leftdelm, struct Delm *rightdelm) {
 
 	parnode = create_node();
 	parnode->sibling = NULL;
-	parnode->ntype = NODE_NODE;
+	parnode->ntype = NODE_CHILD;
 	parnode->etype = ERROR_NONE;
 	parnode->child = NULL;
 
@@ -545,63 +494,6 @@ int capture_nodes(struct Delm *delms, int ndelms) {
 
 }
 
-static void gen_rootkey(struct Token *tkn, char *left, char *right) {
-
-	char local[] = "local\0";
-	char *lch = local;
-	char *tmp;
-	int i = 0;
-
-	while (*left) {
-		if  (*left != '\n' && *left != ' ' && *left != '\t') {
-			break;
-		}
-		left++;
-	}
-
-	tmp = left;
-
-	while (*lch && *tmp && *tmp == *lch) {
-		i++;
-		tmp++;
-		lch++;
-	}
-
-	if (i == 5) {
-		left = tmp;
-		while (*left && left != right) {
-			if  (*left != '\n' && *left != ' ' && *left != '\t') {
-				break;
-			}
-			left++;
-		}
-
-	}
-
-	while (*right && right != left) {
-		if  (*right != '\n' && *right != ' ' && *right != '\t') {
-			break;
-		}
-		right--;
-	}
-
-	tkn->ttype = TOKEN_KEY;
-
-	if (left == right) {
-
-		tkn->etype = ERROR_KEY;
-		tkn->start = NULL;
-
-	} else {
-
-		tkn->etype = ERROR_NONE;
-		tkn->start = left;
-		tkn->end = right;
-
-	}
-
-}
-
 struct Node *get_rootnode(char *str, struct Delm *delms) {
 
 	struct Node *rnode = NULL;
@@ -646,6 +538,53 @@ struct Node *get_rootnode(char *str, struct Delm *delms) {
 	return rnode;
 }
 
+
+int get_delms( struct Delm **delimters, char *str, int *nmatch) {
+
+	struct Delm *delms;
+	struct Delm *curdelm = NULL;
+	struct Delm *predelm = NULL;
+	char dtosearch[] = "={},\0";
+	char *schar = dtosearch;
+	int nm = 0;
+
+	if (!delimters || !str || !nmatch) {
+		return 1;
+	}
+
+	while (*str) {
+		while (*schar) {
+			if (*str == *schar) {
+
+				curdelm = create_delm();
+				if (predelm) {
+					predelm->next = curdelm;
+				} else {
+					delms = curdelm;
+				}
+
+				curdelm->delm = str;
+				curdelm->dtype= DELM_CHAR;
+				curdelm->next = NULL;
+				nm++;
+
+				predelm = curdelm;
+
+				break;
+			}
+			schar++;
+		}
+		str++;
+		schar = dtosearch;
+	}
+
+	*delimters = delms;
+	*nmatch = nm;
+
+	return 0;
+
+}
+
 struct Node *parse_string(char *str, int len) {
 
 	int no_delms;
@@ -653,7 +592,6 @@ struct Node *parse_string(char *str, int len) {
 	struct Delm *delms;
 	struct Delm *tmpdelm;
 	struct Node *rnode;
-	// char string[] = " { { 'hai4', { 'lol' }, }, }\0";
 
 	get_delms(&delms, str, &no_delms);
 
@@ -676,35 +614,88 @@ struct Node *parse_string(char *str, int len) {
 
 }
 
+char *read_file(char *file, int *nread) {
+
+	int read_chnr = 0;
+	char *str;
+	char ch;
+	FILE *fp;
+	struct stat st;
+
+	if (!file) {
+		return NULL;
+	}
+
+	if (stat(file, &st)) {
+		fprintf(stderr, "Couldn't open file %s, probably it doesn't exist.\n", file);
+		exit(EXIT_FAILURE);
+	}
+
+	if (S_ISDIR(st.st_mode)) {
+		fprintf(stderr, "%s is a directory.\n", file);
+		exit(EXIT_FAILURE);
+	}
+
+	fp = fopen(file, "r");
+
+	str = malloc(sizeof(char) * BUFSIZ);
+
+	if (!str) {
+		fprintf(stderr, "Out of memory\n");
+		return NULL;
+	}
+
+	while((ch = fgetc(fp)) != (char)EOF) {
+
+		*(str + read_chnr) = ch;
+		read_chnr++;
+
+		if (read_chnr % BUFSIZ == 0) {
+			str = realloc(str, sizeof(char) * (read_chnr + BUFSIZ));
+
+			if (!str) {
+				fprintf(stderr, "Out of memory\n");
+				return NULL;
+			}
+
+		}
+
+	}
+
+	*(str + read_chnr) = '\0';
+
+	fclose(fp);
+
+	if (nread) {
+		*nread = read_chnr;
+	}
+
+	return str;
+
+}
+
 void draw_tree(int depth, struct Node *node) {
 
 	int i;
-	struct Node *child;
 
-	child = node;
+	while (node) {
 
-	while (child) {
-
-		fprintf(stderr, "%p\n", child);
-
-		if (child->ntype == NODE_NODE) {
+		if (node->ntype == NODE_CHILD) {
 			for (i = 0; i < depth; i++) {
 				printf("    ");
 			}
-			printf("NODE_NODE\n");
-			draw_tree(depth + 1, child->child);
-		} else if (child->ntype == NODE_STRING) {
+			printf("NODE_CHILD\n");
+			draw_tree(depth + 1, node->child);
+		} else if (node->ntype == NODE_STRING) {
 			for (i = 0; i < depth; i++) {
 				printf("    ");
 			}
-			printf("%s\n", child->valstr);
+			printf("%s\n", node->valstr);
 		} else {
-			printf("That not supposed to happen\n");
-			fprintf(stderr, "--> %d\n", child->ntype);
-			fprintf(stderr, "--> %c\n", *child);
+			fprintf(stderr, "That not supposed to be happening\n");
 		}
 
-		child = child->sibling;
+		node = node->sibling;
 	}
 
 }
