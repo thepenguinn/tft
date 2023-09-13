@@ -2,7 +2,7 @@
 #include<stdlib.h>
 #include<sys/stat.h>
 
-#define VEC_BUF 4
+#define VEC_BUF BUFSIZ
 
 enum DelmType {
 	DELM_NODE,
@@ -76,9 +76,22 @@ struct Vector {
 };
 
 static char char_minus[] = "─\0";
+static char char_equal[] = "＝\0";
 static char char_pipe[]  = "│\0";
 static char char_tee[]   = "├\0";
 static char char_elbow[] = "└\0";
+static char char_arrow[] = "→\0";
+static char char_double_arrow[] = "⇒\0";
+// ⇒ ⇢  →
+
+// static char char_minus[] = "-\0";
+// static char char_equal[] = "＝\0";
+// static char char_pipe[]  = "|\0";
+// static char char_tee[]   = "+\0";
+// static char char_elbow[] = "+\0";
+// static char char_arrow[] = "->\0";
+// static char char_double_arrow[] = "⇒\0";
+// // ⇒ ⇢  →
 
 struct Node *create_node();
 struct Delm *create_delm();
@@ -98,7 +111,7 @@ struct Node *parse_string(char *str, int len);
 
 char *read_file(char *file, int *nread);
 
-void draw_tree(int depth, struct Node *node);
+void draw_tree(int depth, struct Node *node, struct Vector *vec);
 
 struct Node *create_node() {
 
@@ -191,6 +204,7 @@ static void gen_rootkey(struct Token *tkn, char *left, char *right) {
 	char local[] = "local\0";
 	char *lch = local;
 	char *tmp;
+	char *end = right - 1;
 	int i = 0;
 
 	while (*left) {
@@ -219,11 +233,11 @@ static void gen_rootkey(struct Token *tkn, char *left, char *right) {
 
 	}
 
-	while (*right && right != left) {
-		if  (*right != '\n' && *right != ' ' && *right != '\t') {
+	while (*end && end != left) {
+		if  (*end != '\n' && *end != ' ' && *end != '\t') {
 			break;
 		}
-		right--;
+		end--;
 	}
 
 	tkn->ttype = TOKEN_KEY;
@@ -237,7 +251,7 @@ static void gen_rootkey(struct Token *tkn, char *left, char *right) {
 
 		tkn->etype = ERROR_NONE;
 		tkn->start = left;
-		tkn->end = right;
+		tkn->end = end;
 
 	}
 
@@ -372,12 +386,10 @@ struct Node *make_node(struct Delm *leftdelm, struct Delm *rightdelm) {
 			if (nexdelm->next->dtype == DELM_CHAR) {
 				switch (*(nexdelm->next->delm)) {
 					case ',':
+					case '}':
 						if (curdelm != leftdelm)
 							dispose_delm(curdelm);
 						curdelm = nexdelm;
-
-						break;
-					case '}':
 						break;
 					default:
 						fprintf(stderr, "Missing a comma\n");
@@ -435,6 +447,7 @@ struct Node *make_node(struct Delm *leftdelm, struct Delm *rightdelm) {
 
 
 			} else {
+				fprintf(stderr, "%c\n", *(nexdelm->delm));
 				fprintf(stderr, "Thats supposed to be a delimiter.\n");
 				exit(EXIT_FAILURE);
 			}
@@ -552,8 +565,9 @@ int get_delms( struct Delm **delimters, char *str, int *nmatch) {
 	struct Delm *delms;
 	struct Delm *curdelm = NULL;
 	struct Delm *predelm = NULL;
-	char dtosearch[] = "={},\0";
-	char *schar = dtosearch;
+	char lquote = '\0';
+	char lch = '\0';
+	int escape = 0;
 	int nm = 0;
 
 	if (!delimters || !str || !nmatch) {
@@ -561,8 +575,54 @@ int get_delms( struct Delm **delimters, char *str, int *nmatch) {
 	}
 
 	while (*str) {
-		while (*schar) {
-			if (*str == *schar) {
+
+		switch (*str) {
+			case '\'':
+
+				if (lch == '\\' && escape) {
+					break;
+				}
+
+				if (lquote == '\'') {
+					lquote = '\0';
+				} else if (lquote == '\0') {
+					lquote = '\'';
+				}
+				break;
+
+			case '"':
+
+				if (lch == '\\' && escape) {
+					break;
+				}
+
+				if (lquote == '"') {
+					lquote = '\0';
+				} else if (lquote == '\0') {
+					lquote = '"';
+				}
+				break;
+
+			case '\\':
+
+				if (lch == '\\') {
+					if (escape) {
+						escape = 0;
+					} else {
+						escape = 1;
+					}
+				} else {
+					escape = 1;
+				}
+				break;
+
+			case ',':
+			case '=':
+			case '{':
+			case '}':
+				if (lquote) {
+					break;
+				}
 
 				curdelm = create_delm();
 				if (predelm) {
@@ -579,11 +639,13 @@ int get_delms( struct Delm **delimters, char *str, int *nmatch) {
 				predelm = curdelm;
 
 				break;
-			}
-			schar++;
+			default:
+				break;
 		}
+
+		lch = *str;
 		str++;
-		schar = dtosearch;
+
 	}
 
 	*delimters = delms;
@@ -842,46 +904,79 @@ void vec_test() {
 	// printf("after pop, start = %s\n", vec->start);
 }
 
-void draw_tree(int depth, struct Node *node) {
+void draw_tree(int depth, struct Node *node, struct Vector *vec) {
 
-	int i;
 	int pushed = 0;
+
+	if (!vec) {
+		return;
+	}
 
 	while (node) {
 
-		if (node->dtype == NODE_CHILD) {
-			if (depth) {
-				if (depth > 1) {
-					printf("%s   ", char_pipe);
-				}
-				for (i = 2; i < depth; i++) {
-					printf("    ");
-				}
-				if (node->sibling) {
-					printf("%s%s%s ", char_tee, char_minus, char_minus);
-				} else {
-					printf("%s%s%s ", char_elbow, char_minus, char_minus);
-				}
+
+		printf("%s", vec->start);
+
+		if (depth) {
+			if (node->sibling) {
+				printf("%s%s%s ", char_tee, char_minus, char_minus);
+				pushed += vec_push(vec, char_pipe);
+				pushed += vec_push(vec, "   ");
+			} else {
+				printf("%s%s%s ", char_elbow, char_minus, char_minus);
+				pushed += vec_push(vec, "    ");
 			}
+		}
+
+		if (node->ntype == NODE_CHILD) {
+
+			printf("\033[1;34m");
+			if (node->ktype == KEY_NUM) {
+				printf("%d", node->keynum);
+			} else if (node->keystr) {
+				printf("%s", node->keystr);
+			} else {
+				printf("NULL");
+			}
+			printf("\033[0m");
+
+			printf("\n");
+
+			draw_tree(depth + 1, node->child, vec);
+
+			vec_pop(vec, pushed);
+
+		} else if (node->ntype == NODE_STRING) {
+
+			printf("\033[1;34m");
 
 			if (node->ktype == KEY_NUM) {
-				printf("%d\n");
+				printf("%d", node->keynum);
 			} else if (node->keystr) {
-				printf("%s\n", node->keystr);
+				printf("%s", node->keystr);
+			} else {
+				printf("NULL");
+			}
+
+			printf("\033[0m");
+
+			printf(" %s%s ", char_minus, char_arrow);
+
+			printf("\033[32m");
+
+			if (node->valstr) {
+				printf("%s\n", node->valstr);
 			} else {
 				printf("NULL\n");
 			}
 
-			draw_tree(depth + 1, node->child);
-		} else if (node->dtype == NODE_STRING) {
+			printf("\033[0m");
 
-			if (depth) {
-				printf("%s   ", char_pipe);
-
-			}
+			vec_pop(vec, pushed);
 
 		}
 
+		pushed = 0;
 		node = node->sibling;
 	}
 
@@ -906,8 +1001,8 @@ int main(int argc, char **argv) {
 
 	free(str);
 
-	// draw_tree(0, rnode);
-	vec_test();
+	draw_tree(0, rnode, vec_create());
+	// vec_test();
 
 	// checking();
 
