@@ -2,6 +2,8 @@
 #include<stdlib.h>
 #include<sys/stat.h>
 
+#define VEC_BUF 4
+
 enum DelmType {
 	DELM_NODE,
 	DELM_CHAR,
@@ -65,6 +67,12 @@ struct Node {
 		struct Node *child;
 	};
 	struct Node *sibling;
+};
+
+struct Vector {
+	int tsize;
+	int csize;
+	char *start;
 };
 
 static char char_minus[] = "─\0";
@@ -674,29 +682,209 @@ char *read_file(char *file, int *nread) {
 
 }
 
+struct Vector *vec_create() {
+
+	struct Vector *vec;
+
+	vec = malloc(sizeof(struct Vector));
+
+	if (!vec) {
+		fprintf(stderr, "Out of memory\n");
+		exit(EXIT_FAILURE);
+	}
+
+	vec->start = malloc(sizeof(char) * VEC_BUF);
+
+	if (!(vec->start)) {
+		fprintf(stderr, "Out of memory\n");
+		exit(EXIT_FAILURE);
+	}
+
+	vec->tsize = VEC_BUF;
+	vec->csize = 0;
+	*(vec->start) = '\0';
+
+	return vec;
+
+}
+
+
+void vec_dispose(struct Vector *vec) {
+
+	if (!vec) {
+		return;
+	}
+
+	if (vec->start) {
+		free(vec->start);
+	}
+
+	free(vec);
+}
+
+int vec_push(struct Vector *vec, char *src) {
+
+	int pushed = 0;
+	int csize;
+	int tsize;
+	char *start;
+
+	if (!vec || !src) {
+		return 0;
+	}
+
+	csize = vec->csize;
+	tsize = vec->tsize;
+	start = vec->start;
+
+	while (*src) {
+
+		if (csize + pushed + 1 >= tsize) {
+			tsize = csize + pushed + 1 + VEC_BUF;
+			start = realloc(start, sizeof(char) * tsize);
+
+			if (!start) {
+				fprintf(stderr, "Out of memory\n");
+				exit(EXIT_FAILURE);
+			}
+		}
+
+		*(start + csize + pushed) = *src;
+
+		pushed++;
+		src++;
+	}
+
+	vec->csize = csize + pushed;
+	vec->tsize = tsize;
+	vec->start = start;
+	*(start + vec->csize) = '\0';
+
+	return pushed;
+
+}
+
+void vec_pop(struct Vector *vec, int size) {
+
+	int csize;
+	int tsize;
+	char *start;
+
+	if (!vec) {
+		return;
+	}
+
+	csize = vec->csize;
+	tsize = vec->tsize;
+	start = vec->start;
+
+	if (csize == 0) {
+		return;
+	}
+
+	if (size < 1) {
+		size = 1;
+	}
+
+	if (size > csize) {
+		size = csize;
+	}
+
+	csize = csize - size;
+
+	*(start + csize) = '\0';
+
+
+	if (tsize >= 4 * VEC_BUF && tsize / 4 > csize) {
+
+		tsize = tsize - ((tsize / VEC_BUF) / 2) * VEC_BUF;
+		start = realloc(start, sizeof(char) * tsize);
+
+		if (!start) {
+			fprintf(stderr, "Out of memory\n");
+			exit(EXIT_FAILURE);
+		}
+	}
+
+	vec->csize = csize;
+	vec->tsize = tsize;
+	vec->start = start;
+
+}
+
+void vec_test() {
+
+	struct Vector *vec;
+	char hai[] = "hai_\0";
+	int pushed;
+
+	vec = vec_create();
+
+	printf("before push, tsize = %d\n", vec->tsize);
+	printf("before push, csize = %d\n", vec->csize);
+	printf("before push, start = %s\n", vec->start);
+
+	// pushed = vec_push(vec, hai);
+
+	// printf("after push, pushed = %d\n", pushed);
+	// printf("after push, tsize = %d\n", vec->tsize);
+	// printf("after push, csize = %d\n", vec->csize);
+	// printf("after push, start = %s\n", vec->start);
+
+	// pushed = vec_push(vec, hai);
+
+	// printf("after push, pushed = %d\n", pushed);
+
+	// // vec_pop(vec, 10);
+
+	// printf("after pop, tsize = %d\n", vec->tsize);
+	// printf("after pop, csize = %d\n", vec->csize);
+	// printf("after pop, start = %s\n", vec->start);
+}
+
 void draw_tree(int depth, struct Node *node) {
 
 	int i;
+	int pushed = 0;
 
 	while (node) {
 
-		if (node->ntype == NODE_CHILD) {
-			for (i = 0; i < depth; i++) {
-				printf("    ");
+		if (node->dtype == NODE_CHILD) {
+			if (depth) {
+				if (depth > 1) {
+					printf("%s   ", char_pipe);
+				}
+				for (i = 2; i < depth; i++) {
+					printf("    ");
+				}
+				if (node->sibling) {
+					printf("%s%s%s ", char_tee, char_minus, char_minus);
+				} else {
+					printf("%s%s%s ", char_elbow, char_minus, char_minus);
+				}
 			}
-			printf("NODE_CHILD\n");
+
+			if (node->ktype == KEY_NUM) {
+				printf("%d\n");
+			} else if (node->keystr) {
+				printf("%s\n", node->keystr);
+			} else {
+				printf("NULL\n");
+			}
+
 			draw_tree(depth + 1, node->child);
-		} else if (node->ntype == NODE_STRING) {
-			for (i = 0; i < depth; i++) {
-				printf("    ");
+		} else if (node->dtype == NODE_STRING) {
+
+			if (depth) {
+				printf("%s   ", char_pipe);
+
 			}
-			printf("%s\n", node->valstr);
-		} else {
-			fprintf(stderr, "That not supposed to be happening\n");
+
 		}
 
 		node = node->sibling;
 	}
+
 
 }
 
@@ -718,7 +906,8 @@ int main(int argc, char **argv) {
 
 	free(str);
 
-	draw_tree(0, rnode);
+	// draw_tree(0, rnode);
+	vec_test();
 
 	// checking();
 
