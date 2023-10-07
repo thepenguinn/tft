@@ -2,7 +2,7 @@
 #include<stdlib.h>
 #include<sys/stat.h>
 
-#define VEC_BUF BUFSIZ
+#define VEC_BUF 5 // BUFSIZ
 
 enum DelmType {
 	DELM_NODE,
@@ -877,21 +877,32 @@ void vec_pop(struct Vector *vec, int size) {
 void vec_test() {
 
 	struct Vector *vec;
-	char hai[] = "hai_\0";
+	char hai[] = "hai\0";
 	int pushed;
 
 	vec = vec_create();
+	struct Vector vector;
 
 	printf("before push, tsize = %d\n", vec->tsize);
 	printf("before push, csize = %d\n", vec->csize);
 	printf("before push, start = %s\n", vec->start);
+	printf("-----------------------------------\n");
 
-	// pushed = vec_push(vec, hai);
+	pushed = vec_push(vec, hai);
 
-	// printf("after push, pushed = %d\n", pushed);
-	// printf("after push, tsize = %d\n", vec->tsize);
-	// printf("after push, csize = %d\n", vec->csize);
-	// printf("after push, start = %s\n", vec->start);
+	printf("after push, pushed = %d\n", pushed);
+	printf("after push, tsize = %d\n", vec->tsize);
+	printf("after push, csize = %d\n", vec->csize);
+	printf("after push, start = %s\n", vec->start);
+	printf("-----------------------------------\n");
+
+	vec_push(vec, "ha");
+
+	printf("after push, pushed = %d\n", pushed);
+	printf("after push, tsize = %d\n", vec->tsize);
+	printf("after push, csize = %d\n", vec->csize);
+	printf("after push, start = %s\n", vec->start);
+	printf("-----------------------------------\n");
 
 	// pushed = vec_push(vec, hai);
 
@@ -913,7 +924,6 @@ void draw_tree(int depth, struct Node *node, struct Vector *vec) {
 	}
 
 	while (node) {
-
 
 		printf("%s", vec->start);
 
@@ -989,6 +999,10 @@ int main(int argc, char **argv) {
 	int nread;
 	char *str;
 	struct Node *rnode;
+
+	// vec_test();
+
+	// exit(EXIT_FAILURE);
 
 	if (argc < 2) {
 		fprintf(stderr, "File name not specified.\n");
