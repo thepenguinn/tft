@@ -948,9 +948,8 @@ void draw_tree(int depth, struct Node *node, struct Vector *vec) {
 			} else {
 				printf("NULL");
 			}
-			printf("\033[0m");
 
-			printf("\n");
+			printf("\033[0m\n");
 
 			draw_tree(depth + 1, node->child, vec);
 
@@ -969,9 +968,7 @@ void draw_tree(int depth, struct Node *node, struct Vector *vec) {
 			}
 
 			printf("\033[0m");
-
 			printf(" %s%s ", char_minus, char_arrow);
-
 			printf("\033[32m");
 
 			if (node->valstr) {
