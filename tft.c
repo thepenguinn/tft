@@ -17,7 +17,7 @@ enum ErrorType {
 };
 
 enum NodeType {
-	NODE_CHILD,      /* the node points to an array of Nodes */
+	NODE_PARENT,      /* the node points to an array of Nodes */
 	NODE_STRING,     /* points to a string, node does not any children nodes */
 };
 
@@ -352,7 +352,7 @@ struct Node *make_node(struct Delm *leftdelm, struct Delm *rightdelm) {
 
 	parnode = create_node();
 	parnode->sibling = NULL;
-	parnode->ntype = NODE_CHILD;
+	parnode->ntype = NODE_PARENT;
 	parnode->etype = ERROR_NONE;
 	parnode->child = NULL;
 
@@ -938,7 +938,7 @@ void draw_tree(int depth, struct Node *node, struct Vector *vec) {
 			}
 		}
 
-		if (node->ntype == NODE_CHILD) {
+		if (node->ntype == NODE_PARENT) {
 
 			printf("\033[1;34m");
 			if (node->ktype == KEY_NUM) {
