@@ -79,7 +79,8 @@ static char char_minus[] = "─\0";
 static char char_equal[] = "＝\0";
 static char char_pipe[]  = "│\0";
 static char char_tee[]   = "├\0";
-static char char_elbow[] = "└\0";
+static char char_elbow[] = "╰\0";
+// static char char_elbow[] = "└\0";
 static char char_arrow[] = "→\0";
 static char char_double_arrow[] = "⇒\0";
 // ⇒ ⇢  →
